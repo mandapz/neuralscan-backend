@@ -1,5 +1,4 @@
-import os, re, logging, smtplib
-from email.mime.text import MIMEText
+import os, re, logging, requests
 from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify
@@ -12,6 +11,8 @@ logger  = logging.getLogger(__name__)
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
 EMAIL_RE    = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+RESEND_API_URL = "https://api.resend.com/emails"
+
 
 def _find_user_by_identifier(identifier):
     """identifier can be a username or an email — either works to log in."""
@@ -23,31 +24,41 @@ def _find_user_by_identifier(identifier):
 
 
 def _send_email(to_email, subject, body):
-    """Sends via SMTP if configured; otherwise logs the message so it's
-    still visible during local development. Configure SMTP_* in .env
-    to actually deliver reset emails in production."""
-    host = os.environ.get("SMTP_HOST")
-    if not host:
-        logger.warning("SMTP not configured — email not sent. Would have sent to %s:\n%s", to_email, body)
-        return
-    port = int(os.environ.get("SMTP_PORT", 587))
-    user = os.environ.get("SMTP_USER")
-    pwd  = os.environ.get("SMTP_PASSWORD")
-    sender = os.environ.get("SMTP_FROM", user)
+    """Sends via the Resend HTTPS API if configured; otherwise logs the
+    message so it's still visible during local development. Configure
+    RESEND_API_KEY and RESEND_FROM in .env to actually deliver emails
+    in production.
 
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"]    = sender
-    msg["To"]      = to_email
+    Uses an HTTPS API instead of raw SMTP because most PaaS providers
+    (Railway included) block outbound SMTP ports (25/465/587) on
+    non-enterprise plans to prevent abuse — HTTPS traffic isn't affected.
+    """
+    api_key = os.environ.get("RESEND_API_KEY")
+    if not api_key:
+        logger.warning("RESEND_API_KEY not configured — email not sent. Would have sent to %s:\n%s", to_email, body)
+        return
+
+    sender = os.environ.get("RESEND_FROM", "onboarding@resend.dev")
 
     try:
-        with smtplib.SMTP(host, port, timeout=10) as server:
-            server.starttls()
-            if user and pwd:
-                server.login(user, pwd)
-            server.sendmail(sender, [to_email], msg.as_string())
-    except (smtplib.SMTPException, OSError) as e:
-        logger.error("Failed to send email to %s: %s", to_email, e)
+        resp = requests.post(
+            RESEND_API_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": sender,
+                "to": [to_email],
+                "subject": subject,
+                "text": body,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        detail = getattr(e.response, "text", "")
+        logger.error("Failed to send email to %s: %s %s", to_email, e, detail)
 
 
 @auth_bp.route("/register", methods=["POST"])
