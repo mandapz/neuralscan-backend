@@ -1,0 +1,16 @@
+# Environment
+.env
+
+# Database
+instance/
+*.db
+
+# Model
+model/*.pth
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
