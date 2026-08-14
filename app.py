@@ -79,7 +79,13 @@ def create_app():
     # LOGIN MANAGER
     # =========================
     login_manager = LoginManager(app)
-    login_manager.session_protection = "strong"
+    # "strong" mode ties sessions to the client's remote IP address, which
+    # breaks when requests pass through multiple proxy hops (Vercel edge ->
+    # Railway) — the perceived IP can legitimately differ between requests
+    # for the same user, causing Flask-Login to treat the session as
+    # hijacked and force-clear it. "basic" avoids this false-positive
+    # while still marking the session as non-fresh on user-agent changes.
+    login_manager.session_protection = "basic"
 
     @login_manager.user_loader
     def load_user(user_id):
