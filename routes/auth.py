@@ -41,12 +41,12 @@ def _send_email(to_email, subject, body):
     msg["To"]      = to_email
 
     try:
-        with smtplib.SMTP(host, port) as server:
+        with smtplib.SMTP(host, port, timeout=10) as server:
             server.starttls()
             if user and pwd:
                 server.login(user, pwd)
             server.sendmail(sender, [to_email], msg.as_string())
-    except Exception as e:
+    except (smtplib.SMTPException, OSError) as e:
         logger.error("Failed to send email to %s: %s", to_email, e)
 
 
